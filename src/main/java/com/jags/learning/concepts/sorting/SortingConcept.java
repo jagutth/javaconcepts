@@ -13,12 +13,15 @@ public class SortingConcept {
 	public static void main(String[] args) {
 
 		/*
-		 * In Java 8, stream() is an API used to process collections of objects.
-		 * The collect() method is used to receive elements from a stream and
-		 * stored them in a collection. The toList() return the collector which
-		 * collects all the input elements into a list, in encounter order.
-		 */
-		List<String> list = Arrays.asList("Jhon", "Aron", "34", "Bob");
+		 * sorted()
+		 * 
+		 * returns a stream consisting of the elements of this stream,
+		 * sorted according to natural order. For ordered streams, the sort
+		 * method is stable but for unordered streams, no stability is
+		 * guaranteed. It is a stateful intermediate operation i.e, it may
+		 * incorporate state from previously seen elements when processing new
+		 * elements.
+		 */List<String> list = Arrays.asList("Jhon", "Aron", "34", "Bob");
 		List<String> sortedList = list.stream().sorted().collect(Collectors.toList());
 		System.out.println(sortedList);
 
