@@ -167,6 +167,7 @@ public class Terminal {
 		productStream.min((p1, p2) -> p1.getProdcutPrice() - p2.getProdcutPrice())
 				.ifPresent(p -> System.out.println(p.getProductName()));
 
+		
 		/*
 		 * max()
 		 * 

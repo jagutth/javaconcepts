@@ -5,6 +5,7 @@ public class Product {
 	int productId;
 	String productName;
 	int prodcutPrice;
+	
 	public int getProductId() {
 		return productId;
 	}
