@@ -1,0 +1,20 @@
+#!/bin/bash
+
+# Define the repository URL
+repo_url="https://github.com/example/repository.git"
+
+# Clone the repository to a temporary directory
+tmp_dir=$(mktemp -d)
+git clone "$repo_url" "$tmp_dir"
+
+# Change directory to the cloned repository
+cd "$tmp_dir" || exit
+
+# Iterate over all branches in the repository
+git for-each-ref --format='%(refname:short)' refs/heads | while read -r branch; do
+    # Create a ZIP file for the branch
+    git archive --format=zip --output="/path/to/download/${branch}.zip" "$branch"
+done
+
+# Clean up: remove the temporary directory
+rm -rf "$tmp_dir"
