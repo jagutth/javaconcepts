@@ -2,39 +2,92 @@ import java.io.ByteArrayOutputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
-public class DownloadRepo {
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpResponse;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpUriRequest;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.util.EntityUtils;
 
-    private static final String DOWNLOAD_URL = "https://github.com/<ORG_NAME>/<REPO_NAME>.zip"; // Replace with your download URL
+import com.google.gson.Gson;
+
+public class DownloadRepos {
+
+    private static final String ORG_NAME = "your-organization-name";
+    private static final String PAT = "your-personal-access-token"; // Encode before use
+    private static final String API_URL = "https://api.github.com/orgs/{org}/repos"; // Replace with actual API URL
+    private static final List<String> BRANCHES_TO_DOWNLOAD = List.of("master", "dev"); // Replace with desired branches
 
     public static void main(String[] args) throws IOException, InterruptedException {
 
-        String fileName = DOWNLOAD_URL.substring(DOWNLOAD_URL.lastIndexOf("/") + 1);
-        Path downloadPath = Paths.get("downloads", fileName);
+        String encodedCredentials = Base64.getEncoder()
+                .encodeToString((ORG_NAME + ":" + PAT).getBytes());
 
-        try (HttpClient client = HttpClient.newHttpClient()) {
-            HttpRequest request = HttpRequest.newBuilder()
-                .GET()
-                .uri(URI.create(DOWNLOAD_URL))
-                .build();
+        List<String> repos = getRepos(encodedCredentials);
 
-            HttpResponse<ByteArrayOutputStream> response = client.send(request, HttpResponse.BodyHandlers.ofByteArraySupplier());
+        for (String repoUrl : repos) {
+            String repoName = repoUrl.substring(repoUrl.lastIndexOf("/") + 1);
 
-            if (response.statusCode() == 200) {
-                Files.createDirectories(downloadPath.getParent()); // Create download directory if it doesn't exist
-                Files.write(downloadPath, response.body().toByteArray());
-                System.out.println("Downloaded archive: " + downloadPath);
-            } else {
-                System.err.println("Failed to download archive. Status code: " + response.statusCode());
+            for (String branch : BRANCHES_TO_DOWNLOAD) {
+                String downloadUrl = repoUrl + "/archive/" + branch + ".zip";
+
+                try (CloseableHttpClient httpClient = HttpClients.createDefault()) {
+                    HttpUriRequest request = new HttpGet(downloadUrl);
+                    HttpResponse response = httpClient.execute(request);
+
+                    if (response.getStatusLine().getStatusCode() == 200) {
+                        HttpEntity entity = response.getEntity();
+                        byte[] content = EntityUtils.toByteArray(entity);
+
+                        Files.createDirectories(Paths.get("downloads")); // Create download directory if it doesn't exist (consider using a utility method)
+                        Files.write(Paths.get("downloads", repoName + "-" + branch + ".zip"), content);
+                        System.out.println("Downloaded archive for " + repoUrl + " (" + branch + ")");
+                    } else {
+                        System.err.println("Failed to download archive for " + repoUrl + " (" + branch + "). Status code: " + response.getStatusLine().getStatusCode());
+                    }
+                }
             }
         }
     }
+
+ private static List<String> getRepos(String encodedCredentials) throws IOException, InterruptedException {
+    List<String> repoUrls = new ArrayList<>();
+
+    try (CloseableHttpClient httpClient = HttpClients.createDefault()) {
+        String url = API_URL.replace("{org}", ORG_NAME);
+        HttpUriRequest request = new HttpGet(URI.create(url));
+        request.setHeader("Authorization", "Basic " + encodedCredentials);
+
+        HttpResponse response = httpClient.execute(request);
+
+        if (response.getStatusLine().getStatusCode() == 200) {
+            HttpEntity entity = response.getEntity();
+            String jsonResponse = EntityUtils.toString(entity);
+
+            Gson gson = new Gson();
+            List<GitHubRepo> repos = gson.fromJson(jsonResponse, java.lang.reflect.TypeToken.ofList(GitHubRepo.class).getType());
+
+            for (GitHubRepo repo : repos) {
+                repoUrls.add(repo.url);
+            }
+        } else {
+            System.err.println("Failed to get repositories. Status code: " + response.getStatusLine().getStatusCode());
+        }
+    }
+
+    return repoUrls;
+}
+
+// Inner class to represent a GitHub repository object (optional)
+static class GitHubRepo {
+    public String url;
+}
+
 }
