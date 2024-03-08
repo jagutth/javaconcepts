@@ -1,85 +1,104 @@
-#!/bin/bash
-
-# Define the repository URL
-repo_url="https://github.com/example/repository.git"
-
-# Clone the repository to a temporary directory
-tmp_dir=$(mktemp -d)
-git clone "$repo_url" "$tmp_dir"
-
-# Change directory to the cloned repository
-cd "$tmp_dir" || exit
-
-# Iterate over all branches in the repository
-git for-each-ref --format='%(refname:short)' refs/heads | while read -r branch; do
-    # Create a ZIP file for the branch
-    git archive --format=zip --output="/path/to/download/${branch}.zip" "$branch"
-done
-
-# Clean up: remove the temporary directory
-rm -rf "$tmp_dir"
-
-import org.eclipse.jgit.api.Git;
-import org.eclipse.jgit.api.errors.GitAPIException;
-import org.eclipse.jgit.internal.storage.file.FileRepository;
-import org.eclipse.jgit.lib.Repository;
-import org.eclipse.jgit.revwalk.RevCommit;
-import org.eclipse.jgit.revwalk.RevWalk;
-import org.eclipse.jgit.treewalk.TreeWalk;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
-public class GitDownloader {
+import com.google.gson.Gson;
 
-    public static void main(String[] args) {
-        String repoURL = "https://github.com/example/repository.git";
-        String downloadPath = "/path/to/download";
-        try {
-            downloadRepoAsZip(repoURL, downloadPath);
-        } catch (IOException | GitAPIException e) {
-            e.printStackTrace();
-        }
-    }
+import org.eclipse.jgit.api.ArchiveCommand;
+import org.eclipse.jgit.api.CloneCommand;
+import org.eclipse.jgit.api.FetchCommand;
+import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.lib.ObjectLoader;
+import org.eclipse.jgit.revwalk.RevCommit;
+import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
+import org.eclipse.jgit.transport.FetchResult;
+import org.eclipse.jgit.treewalk.TreeWalk;
 
-    public static void downloadRepoAsZip(String repoURL, String downloadPath) throws IOException, GitAPIException {
-        Git.cloneRepository()
-                .setURI(repoURL)
-                .setDirectory(new File(downloadPath))
-                .call();
+public class DownloadRepos {
 
-        try (Repository repo = new FileRepository(downloadPath + "/.git")) {
-            try (Git git = new Git(repo)) {
-                List<String> branches = getAllBranches(git);
-                for (String branch : branches) {
-                    checkoutBranch(git, branch);
-                    createZip(downloadPath, branch);
+    private static final String ORG_NAME = "your-organization-name";
+    private static final String PAT = "your-personal-access-token"; // Encode before use
+
+    public static void main(String[] args) throws IOException, InterruptedException {
+
+        String encodedCredentials = Base64.getEncoder()
+                .encodeToString((ORG_NAME + ":" + PAT).getBytes());
+
+        List<String> repos = getPublicRepos(encodedCredentials);
+
+        for (String repoUrl : repos) {
+            String repoName = extractRepoName(repoUrl);
+            File repoDir = new File(repoName);
+
+            try (Git git = cloneRepository(repoUrl, repoDir)) {
+                // Fetch all branches
+                FetchResult fetchResult = fetchAllBranches(git);
+                if (fetchResult.getTrackingRefUpdates().isEmpty()) {
+                    System.out.println("No new branches found for " + repoName);
+                } else {
+                    System.out.println("Fetched branches for " + repoName);
                 }
+
+                // Create archive (replace with desired format if needed)
+                createZipArchive(git.getRepository(), repoName + ".zip");
+            } catch (GitException e) {
+                System.err.println("Error processing " + repoName + ": " + e.getMessage());
             }
         }
+
+        System.out.println("Downloaded archives for all public repositories.");
     }
 
-    public static List<String> getAllBranches(Git git) throws GitAPIException {
-        List<String> branches = new ArrayList<>();
-        git.branchList().call().forEach(ref -> branches.add(ref.getName()));
-        return branches;
+    // Existing methods (getPublicRepos, extractRepoName) remain unchanged (see previous response)
+
+    private static Git cloneRepository(String repoUrl, File repoDir) throws GitException, IOException {
+        CloneCommand cloneCommand = Git.cloneRepository();
+        cloneCommand.setURI(repoUrl);
+        cloneCommand.setDirectory(repoDir);
+        return cloneCommand.call();
     }
 
-    public static void checkoutBranch(Git git, String branch) throws GitAPIException {
-        git.checkout().setName(branch).call();
+    private static FetchResult fetchAllBranches(Git git) throws GitException {
+        FetchCommand fetchCommand = git.fetch();
+        fetchCommand.setRemote("origin");
+        fetchCommand.setAllTags(true);
+        return fetchCommand.call();
     }
 
-    public static void createZip(String downloadPath, String branch) throws IOException {
-        String zipFileName = downloadPath + "/" + branch + ".zip";
-        File zipFile = new File(zipFileName);
+    private static void createZipArchive(FileRepository repository, String archivePath) throws GitException, IOException {
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        ZipOutputStream zipOutputStream = new ZipOutputStream(outputStream);
 
-        try (FileOutputStream fos = new FileOutputStream(zipFile)) {
-            // Logic to create a zip file from the contents of the repository folder
-            // You can use any library to create zip files, like java.util.zip or Apache Commons Compress
-            // For simplicity, this example doesn't include the actual zip creation logic
+        try (TreeWalk treeWalk = new TreeWalk(repository)) {
+            treeWalk.addTree(repository.findRef("HEAD").getObjectId());
+            treeWalk.setRecursive(true);
+
+            while (treeWalk.next()) {
+                String path = treeWalk.getPathString();
+                RevCommit commit = treeWalk.getCommit();
+                ObjectLoader loader = repository.getObjectDatabase().newObjectLoader(treeWalk.getObjectId(0));
+                byte[] content = loader.getBytes();
+
+                ZipEntry entry = new ZipEntry(path);
+                entry.setSize(content.length);
+                entry.setLastModifiedTime(commit.getCommitTime() * 1000); // Convert milliseconds to seconds
+                zipOutputStream.putNextEntry(entry);
+                zipOutputStream.write(content);
+                zipOutputStream.closeEntry();
+            }
         }
-    }
-}
 
+        zipOutputStream.close();
+        byte[] zipBytes = outputStream.toByteArray();
+
+        try (FileOutputStream fos = new FileOutputStream(archivePath)) {
+            fos.write(
