@@ -27,7 +27,7 @@ public class DataTypeTutorial {
         // Converting a larger type to a smaller type. REQUIRES (type) syntax.
         
         double pi = 3.99;
-        int truncatedPi = (int) pi; // Manual cast: double -> int
+        int truncatedPi = (int)pi; // Manual cast: double -> int
         // WARNING: Narrowing decimals to integers removes everything after the dot!
         System.out.println("Truncated Int: " + truncatedPi); // Prints 3
 
